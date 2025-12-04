@@ -400,7 +400,6 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 // / startSystemInfoServer initializes and starts the HTTP server providing system information endpoints.
 func startSystemInfoServer() {
-	// Memória
 	http.HandleFunc("/system/memory", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		v, err := mem.VirtualMemory()
 		if err != nil {
@@ -414,7 +413,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Swap
 	http.HandleFunc("/system/swap", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		s, err := mem.SwapMemory()
 		if err != nil {
@@ -428,7 +426,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// CPU
 	http.HandleFunc("/system/cpu", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		c, err := cpu.Info()
 		if err != nil {
@@ -442,7 +439,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// CPU Percent
 	http.HandleFunc("/system/cpu/percent", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		p, err := cpu.Percent(time.Second, true)
 		if err != nil {
@@ -456,7 +452,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Disco
 	http.HandleFunc("/system/disk", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		d, err := disk.Usage("/")
 		if err != nil {
@@ -470,7 +465,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Partições
 	http.HandleFunc("/system/disk/partitions", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		parts, err := disk.Partitions(true)
 		if err != nil {
@@ -484,7 +478,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Rede
 	http.HandleFunc("/system/net", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		io, err := net.IOCounters(true)
 		if err != nil {
@@ -498,7 +491,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Conexões de rede
 	http.HandleFunc("/system/net/conns", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		conns, err := net.Connections("all")
 		if err != nil {
@@ -512,7 +504,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Temperatura
 	http.HandleFunc("/system/temp", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		temps, err := host.SensorsTemperatures()
 		if err != nil {
@@ -526,7 +517,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Host info
 	http.HandleFunc("/system/host", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		h, err := host.Info()
 		if err != nil {
@@ -540,7 +530,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Usuários logados
 	http.HandleFunc("/system/users", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		u, err := host.Users()
 		if err != nil {
@@ -554,7 +543,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Load Average
 	http.HandleFunc("/system/load", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		l, err := load.Avg()
 		if err != nil {
@@ -568,7 +556,6 @@ func startSystemInfoServer() {
 		}
 	}))
 
-	// Processos
 	http.HandleFunc("/system/processes", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		procs, err := process.Processes()
 		if err != nil {
@@ -598,13 +585,11 @@ func startSystemInfoServer() {
 // / h: Height of the rendered image.
 // / Returns: Rendered image, error
 func renderSource(src string, w, h int) (image.Image, error) {
-	// Determina o caminho do Chromium
 	path := *chromiumPath
 	if path == "" {
 		path = os.Getenv("CHROMIUM_PATH")
 	}
 	if path == "" {
-		// tenta alguns caminhos comuns
 		commonPaths := []string{
 			"/usr/bin/chromium",
 			"/usr/bin/chromium-browser",
@@ -640,21 +625,15 @@ func renderSource(src string, w, h int) (image.Image, error) {
 	}
 
 	var buf []byte
-
-	// Primeiro monta as tarefas principais
 	tasks := chromedp.Tasks{
 		chromedp.Navigate(src),
 		chromedp.Sleep(100 * time.Millisecond),
 		chromedp.FullScreenshot(&buf, 90),
 		chromedp.Sleep(100 * time.Millisecond),
 	}
-
-	// Executa as tarefas principais
 	if err := chromedp.Run(ctx, tasks); err != nil {
 		return nil, fmt.Errorf("chromedp tasks failed: %w", err)
 	}
-
-	// Agora checa se loadInfo existe e chama se necessário
 	var exists bool
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`typeof loadInfo === "function"`, &exists)); err != nil {
 		return nil, fmt.Errorf("failed to check loadInfo: %w", err)
@@ -666,8 +645,6 @@ func renderSource(src string, w, h int) (image.Image, error) {
 	} else if *verbose {
 		log.Println("loadInfo() not defined in page, skipping")
 	}
-
-	// Detecta formato
 	if len(buf) >= 8 && bytes.HasPrefix(buf, []byte{0x89, 'P', 'N', 'G'}) {
 		return png.Decode(bytes.NewReader(buf))
 	} else if len(buf) >= 2 && buf[0] == 0xFF && buf[1] == 0xD8 {
