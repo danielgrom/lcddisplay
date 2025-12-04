@@ -56,6 +56,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -102,6 +103,7 @@ type ax206 struct {
 	inEP   *gousb.InEndpoint
 	width  int
 	height int
+	mu     sync.Mutex
 }
 
 const serverAddr = "127.0.0.1:8080"
@@ -157,20 +159,35 @@ func openAX206(ctx context.Context) (*ax206, error) {
 // / Close releases resources associated with the AX206 device.
 // / Parameters: none
 func (a *ax206) Close() {
-	a.clearDisplay()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.clearDisplayUnsafe()
 	if a.intf != nil {
 		a.intf.Close()
+		a.intf = nil
 	}
 	if a.cfg != nil {
 		a.cfg.Close()
+		a.cfg = nil
 	}
 	if a.dev != nil {
 		a.dev.Close()
+		a.dev = nil
 	}
 }
 
 // / clearDisplay fills the LCD display with black pixels.
 func (a *ax206) clearDisplay() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.clearDisplayUnsafe()
+}
+
+// / clearDisplayUnsafe fills the LCD display with black pixels (must be called with lock held).
+func (a *ax206) clearDisplayUnsafe() {
+	if a == nil || a.outEP == nil || a.inEP == nil {
+		return
+	}
 	if a.width == 0 || a.height == 0 {
 		return
 	}
@@ -178,7 +195,7 @@ func (a *ax206) clearDisplay() {
 	buf := make([]byte, a.width*a.height*2)
 	// Send it to the display
 	if err := a.blit(buf, 0, 0, a.width, a.height, 0x12); err != nil {
-		log.Printf("Warning: failed to clear display: %v", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to clear display: %v\n", err)
 	}
 }
 
@@ -684,11 +701,10 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-sigChan
-		if *verbose {
-			log.Println("Interrupt received, clearing display and exiting...")
-		}
-		ax.Close()
+		sig := <-sigChan
+		fmt.Fprintf(os.Stderr, "\nReceived signal %v, clearing display...\n", sig)
+		ax.clearDisplay()
+		fmt.Fprintln(os.Stderr, "Display cleared, exiting.")
 		os.Exit(0)
 	}()
 
