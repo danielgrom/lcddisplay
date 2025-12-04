@@ -465,7 +465,7 @@ func renderSource(src string, w, h int) (image.Image, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 				   chromedp.ExecPath(*chromiumPath),
 				   chromedp.Flag("headless", true),
-				   chromedp.Flag("disable-gpu", true),]
+				   chromedp.Flag("disable-gpu", true),
 				   chromedp.WindowSize(w, h),
 	)
 
