@@ -12,28 +12,37 @@
             width: 320px;
             height: 480px;
             overflow: hidden;
-            /* evita barra de rolagem */
-            background: #111;
+            /* evita barra de rolagem */            
             color: #eee;
             font-family: Arial, sans-serif;
             text-align: center;
         }
 
         h1 {
-            color: #4CAF50;
-            margin: 10px 0;
+            color: #4CAF50;            
+            margin-top: 35px;
+            margin-bottom: 0px;
             font-size: 1.2em;
         }
 
+        h2 {            
+            margin: 10px 0;
+            font-size: 1.0em;                   
+            padding: 0;            
+            color: #eee;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+
         .card {
-            background: #222;
+            text-align: center;
+            background: rgba(160, 175, 255, 0.2);
             margin: 6px auto;
             padding: 2px;
             border-radius: 6px;
-            width: 180px;
-            /* reduzido para caber */
-            box-shadow: 0 0 5px #000;
-            font-size: 0.9em;
+            width: 180px;                            
+            font-size: 1.0em;
         }
 
         .value {
@@ -43,7 +52,8 @@
     </style>
 </head>
 
-<body>
+<body background="background.png">
+
     <h1>System Information</h1>
     <div class="card">
         <h2>Memory</h2>

@@ -81,14 +81,13 @@ const (
 // / Command-line flags
 var (
 	htmlFile     = flag.String("html", "", "Render a local HTML file")
-	urlFlag      = flag.String("url", "", "Render an external URL")
 	loop         = flag.Bool("loop", false, "Run in infinite loop")
 	info         = flag.Bool("info", false, "Show display information")
 	format       = flag.String("format", "rgb565", "Color format: rgb565, bgr565, brg565")
 	endian       = flag.String("endian", "big", "Endianness: little or big")
 	verbose      = flag.Bool("verbose", false, "Enable verbose logging")
 	rotate       = flag.Int("rotate", 0, "Image rotation in degrees (0, 90, 180, 270)")
-	interval     = flag.Duration("interval", time.Second, "Interval between renderings in loop mode (e.g., 200ms, 1s)")
+	interval     = flag.Duration("interval", time.Second, "Interval between renderings in loop mode (e.g., 1000ms, 1s)")
 	chromiumPath = flag.String("chromium", "/usr/bin/chromium", "Path to Chromium/Chrome executable")
 )
 
@@ -692,9 +691,7 @@ func main() {
 		return
 	}
 	var src string
-	if *urlFlag != "" {
-		src = *urlFlag
-	} else if *htmlFile != "" {
+	if *htmlFile != "" {
 		absPath, err := filepath.Abs(*htmlFile)
 		if err != nil {
 			log.Fatal(err)
@@ -703,9 +700,8 @@ func main() {
 	} else {
 		fmt.Println("Usage:")
 		fmt.Println(" --html file.html Render a local HTML file")
-		fmt.Println(" --url https://site Render an external URL")
 		fmt.Println(" --loop Run in infinite loop")
-		fmt.Println(" --interval=200ms Interval between renderings in loop mode")
+		fmt.Println(" --interval=1000ms Interval between renderings in loop mode")
 		fmt.Println(" --format=brg565 Color format (rgb565, bgr565, brg565)")
 		fmt.Println(" --endian=little Endianness (little or big)")
 		fmt.Println(" --verbose Enable verbose logging")
