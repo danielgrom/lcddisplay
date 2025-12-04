@@ -53,6 +53,7 @@ import (
 	"image/png"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -79,15 +80,16 @@ const (
 
 // / Command-line flags
 var (
-	htmlFile = flag.String("html", "", "Render a local HTML file")
-	urlFlag  = flag.String("url", "", "Render an external URL")
-	loop     = flag.Bool("loop", false, "Run in infinite loop")
-	info     = flag.Bool("info", false, "Show display information")
-	format   = flag.String("format", "rgb565", "Color format: rgb565, bgr565, brg565")
-	endian   = flag.String("endian", "big", "Endianness: little or big")
-	verbose  = flag.Bool("verbose", false, "Enable verbose logging")
-	rotate   = flag.Int("rotate", 0, "Image rotation in degrees (0, 90, 180, 270)")
-	interval = flag.Duration("interval", time.Second, "Interval between renderings in loop mode (e.g., 200ms, 1s)")
+	htmlFile     = flag.String("html", "", "Render a local HTML file")
+	urlFlag      = flag.String("url", "", "Render an external URL")
+	loop         = flag.Bool("loop", false, "Run in infinite loop")
+	info         = flag.Bool("info", false, "Show display information")
+	format       = flag.String("format", "rgb565", "Color format: rgb565, bgr565, brg565")
+	endian       = flag.String("endian", "big", "Endianness: little or big")
+	verbose      = flag.Bool("verbose", false, "Enable verbose logging")
+	rotate       = flag.Int("rotate", 0, "Image rotation in degrees (0, 90, 180, 270)")
+	interval     = flag.Duration("interval", time.Second, "Interval between renderings in loop mode (e.g., 200ms, 1s)")
+	chromiumPath = flag.String("chromium", "/usr/bin/chromium", "Path to Chromium/Chrome executable")
 )
 
 // / AX206 represents the AX206 LCD device and provides methods for communication.
@@ -101,11 +103,14 @@ type ax206 struct {
 	height int
 }
 
+const serverAddr = "127.0.0.1:8080"
+
 // / openAX206 initializes and opens a connection to the AX206 LCD device.
 // / ctx: Context for USB operations.
 // / Returns: *ax206, error
 func openAX206(ctx context.Context) (*ax206, error) {
 	usbCtx := gousb.NewContext()
+	defer usbCtx.Close()
 	dev, err := usbCtx.OpenDeviceWithVIDPID(vid, pid)
 	if err != nil {
 		return nil, fmt.Errorf("open device: %w, need proper permissions?", err)
@@ -220,7 +225,7 @@ func (a *ax206) wrapSCSI(cmd []byte, cmdPayload []byte, dirOut bool, data []byte
 		return err
 	}
 	if string(ack[0:4]) != "USBS" {
-		return fmt.Errorf("bad ACK")
+		return fmt.Errorf("invalid ACK signature: expected USBS, got %s", string(ack[0:4]))
 	}
 	if ack[12] != 0x00 {
 		return fmt.Errorf("status %02x", ack[12])
@@ -356,9 +361,19 @@ func convertToBuffer(img image.Image, w, h int, format, endian string) []byte {
 
 // / withCORS is a middleware that adds CORS headers to HTTP responses.
 // / h is the HTTP handler function to wrap.
+
+var allowedOrigins = map[string]bool{
+	"http://localhost:8080": true,
+	"http://127.0.0.1:8080": true,
+	"null":                  true,
+}
+
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
@@ -372,79 +387,194 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 
 // / startSystemInfoServer initializes and starts the HTTP server providing system information endpoints.
 func startSystemInfoServer() {
+	// Memória
 	http.HandleFunc("/system/memory", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		v, _ := mem.VirtualMemory()
-		json.NewEncoder(w).Encode(v)
+		v, err := mem.VirtualMemory()
+		if err != nil {
+			log.Printf("error getting memory info: %v", err)
+			http.Error(w, "failed to get memory info", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(v); err != nil {
+			log.Printf("error encoding memory info: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Swap
 	http.HandleFunc("/system/swap", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		s, _ := mem.SwapMemory()
-		json.NewEncoder(w).Encode(s)
+		s, err := mem.SwapMemory()
+		if err != nil {
+			log.Printf("error getting swap info: %v", err)
+			http.Error(w, "failed to get swap info", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(s); err != nil {
+			log.Printf("error encoding swap info: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// CPU
 	http.HandleFunc("/system/cpu", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		c, _ := cpu.Info()
-		json.NewEncoder(w).Encode(c)
+		c, err := cpu.Info()
+		if err != nil {
+			log.Printf("error getting cpu info: %v", err)
+			http.Error(w, "failed to get cpu info", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(c); err != nil {
+			log.Printf("error encoding cpu info: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// CPU Percent
 	http.HandleFunc("/system/cpu/percent", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		p, _ := cpu.Percent(time.Second, true)
-		json.NewEncoder(w).Encode(p)
+		p, err := cpu.Percent(time.Second, true)
+		if err != nil {
+			log.Printf("error getting cpu percent: %v", err)
+			http.Error(w, "failed to get cpu percent", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(p); err != nil {
+			log.Printf("error encoding cpu percent: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Disco
 	http.HandleFunc("/system/disk", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		d, _ := disk.Usage("/")
-		json.NewEncoder(w).Encode(d)
+		d, err := disk.Usage("/")
+		if err != nil {
+			log.Printf("error getting disk usage: %v", err)
+			http.Error(w, "failed to get disk usage", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(d); err != nil {
+			log.Printf("error encoding disk usage: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Partições
 	http.HandleFunc("/system/disk/partitions", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		parts, _ := disk.Partitions(true)
-		json.NewEncoder(w).Encode(parts)
+		parts, err := disk.Partitions(true)
+		if err != nil {
+			log.Printf("error getting disk partitions: %v", err)
+			http.Error(w, "failed to get disk partitions", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(parts); err != nil {
+			log.Printf("error encoding disk partitions: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Rede
 	http.HandleFunc("/system/net", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		io, _ := net.IOCounters(true)
-		json.NewEncoder(w).Encode(io)
+		io, err := net.IOCounters(true)
+		if err != nil {
+			log.Printf("error getting net io counters: %v", err)
+			http.Error(w, "failed to get net io counters", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(io); err != nil {
+			log.Printf("error encoding net io counters: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Conexões de rede
 	http.HandleFunc("/system/net/conns", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		conns, _ := net.Connections("all")
-		json.NewEncoder(w).Encode(conns)
+		conns, err := net.Connections("all")
+		if err != nil {
+			log.Printf("error getting net connections: %v", err)
+			http.Error(w, "failed to get net connections", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(conns); err != nil {
+			log.Printf("error encoding net connections: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Temperatura
 	http.HandleFunc("/system/temp", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		temps, _ := host.SensorsTemperatures()
-		json.NewEncoder(w).Encode(temps)
+		temps, err := host.SensorsTemperatures()
+		if err != nil {
+			log.Printf("error getting temperatures: %v", err)
+			http.Error(w, "failed to get temperatures", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(temps); err != nil {
+			log.Printf("error encoding temperatures: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Host info
 	http.HandleFunc("/system/host", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		h, _ := host.Info()
-		json.NewEncoder(w).Encode(h)
+		h, err := host.Info()
+		if err != nil {
+			log.Printf("error getting host info: %v", err)
+			http.Error(w, "failed to get host info", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(h); err != nil {
+			log.Printf("error encoding host info: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Usuários logados
 	http.HandleFunc("/system/users", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		u, _ := host.Users()
-		json.NewEncoder(w).Encode(u)
+		u, err := host.Users()
+		if err != nil {
+			log.Printf("error getting users: %v", err)
+			http.Error(w, "failed to get users", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(u); err != nil {
+			log.Printf("error encoding users: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Load Average
 	http.HandleFunc("/system/load", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		l, _ := load.Avg()
-		json.NewEncoder(w).Encode(l)
+		l, err := load.Avg()
+		if err != nil {
+			log.Printf("error getting load avg: %v", err)
+			http.Error(w, "failed to get load avg", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(l); err != nil {
+			log.Printf("error encoding load avg: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
+	// Processos
 	http.HandleFunc("/system/processes", withCORS(func(w http.ResponseWriter, r *http.Request) {
-		procs, _ := process.Processes()
-		json.NewEncoder(w).Encode(procs)
+		procs, err := process.Processes()
+		if err != nil {
+			log.Printf("error getting processes: %v", err)
+			http.Error(w, "failed to get processes", http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(procs); err != nil {
+			log.Printf("error encoding processes: %v", err)
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}))
 
 	go func() {
 		if *verbose {
-			log.Println("System info server running at http://localhost:8080")
+			log.Printf("System info server running at //%s", serverAddr)
 		}
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			if *verbose {
-				log.Printf("System info server stopped: %v", err)
-			}
+		if err := http.ListenAndServe(serverAddr, nil); err != nil {
+			log.Printf("System info server stopped: %v", err)
 		}
 	}()
 }
@@ -455,8 +585,32 @@ func startSystemInfoServer() {
 // / h: Height of the rendered image.
 // / Returns: Rendered image, error
 func renderSource(src string, w, h int) (image.Image, error) {
+	// Determina o caminho do Chromium
+	path := *chromiumPath
+	if path == "" {
+		path = os.Getenv("CHROMIUM_PATH")
+	}
+	if path == "" {
+		// tenta alguns caminhos comuns
+		commonPaths := []string{
+			"/usr/bin/chromium",
+			"/usr/bin/chromium-browser",
+			"/usr/bin/google-chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+		}
+		for _, p := range commonPaths {
+			if _, err := os.Stat(p); err == nil {
+				path = p
+				break
+			}
+		}
+	}
+	if path == "" {
+		return nil, fmt.Errorf("no Chromium executable found, set --chromium flag or CHROMIUM_PATH env var")
+	}
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath("/usr/bin/chromium"),
+		chromedp.ExecPath(path),
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.WindowSize(w, h),
@@ -473,33 +627,37 @@ func renderSource(src string, w, h int) (image.Image, error) {
 	}
 
 	var buf []byte
+
+	// Primeiro monta as tarefas principais
 	tasks := chromedp.Tasks{
 		chromedp.Navigate(src),
-		chromedp.Sleep(100 * time.Millisecond),
-		chromedp.Evaluate(`loadInfo()`, nil),
 		chromedp.Sleep(100 * time.Millisecond),
 		chromedp.FullScreenshot(&buf, 90),
 	}
 
+	// Executa as tarefas principais
 	if err := chromedp.Run(ctx, tasks); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("chromedp tasks failed: %w", err)
 	}
 
-	// Detects magic number
+	// Agora checa se loadInfo existe e chama se necessário
+	var exists bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`typeof loadInfo === "function"`, &exists)); err != nil {
+		return nil, fmt.Errorf("failed to check loadInfo: %w", err)
+	}
+	if exists {
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`loadInfo()`, nil)); err != nil {
+			log.Printf("loadInfo() call failed: %v", err)
+		}
+	} else if *verbose {
+		log.Println("loadInfo() not defined in page, skipping")
+	}
+
+	// Detecta formato
 	if len(buf) >= 8 && bytes.HasPrefix(buf, []byte{0x89, 'P', 'N', 'G'}) {
-		// PNG
-		img, err := png.Decode(bytes.NewReader(buf))
-		if err != nil {
-			return nil, fmt.Errorf("fail to decode PNG: %w", err)
-		}
-		return img, nil
+		return png.Decode(bytes.NewReader(buf))
 	} else if len(buf) >= 2 && buf[0] == 0xFF && buf[1] == 0xD8 {
-		// JPEG
-		img, err := jpeg.Decode(bytes.NewReader(buf))
-		if err != nil {
-			return nil, fmt.Errorf("fail to decode JPEG: %w", err)
-		}
-		return img, nil
+		return jpeg.Decode(bytes.NewReader(buf))
 	}
 
 	return nil, fmt.Errorf("unknown format in screenshot")
