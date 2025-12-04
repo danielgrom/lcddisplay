@@ -358,24 +358,23 @@ func convertToBuffer(img image.Image, w, h int, format, endian string) []byte {
 // / withCORS is a middleware that adds CORS headers to HTTP responses.
 // / h is the HTTP handler function to wrap.
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		allowedOrigin := "http://localhost:8080"
-       if r.Header.Get("Origin") != allowedOrigin {
+    return func(w http.ResponseWriter, r *http.Request) {
+        origin := r.Header.Get("Origin")
+        if origin != "http://localhost:8080" && origin != "null" {
             http.Error(w, "Forbidden", http.StatusForbidden)
-            log.Printf("Blocked request from origin: %s", r.Header.Get("Origin"))
+            log.Printf("Blocked request from origin: %s", origin)
             return
         }
-        w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+        w.Header().Set("Access-Control-Allow-Origin", origin)
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
         if r.Method == "OPTIONS" {
-            log.Printf("Preflight request from %s allowed", allowedOrigin)
+            log.Printf("Preflight request from %s allowed", origin)
             return
         }
         log.Printf("Handling request %s %s", r.Method, r.URL.Path)
         h(w, r)
-	}
-}
+    }
 
 // / startSystemInfoServer initializes and starts the HTTP server providing system information endpoints.
 func startSystemInfoServer() {
