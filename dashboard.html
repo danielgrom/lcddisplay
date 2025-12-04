@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>System Info Dashboard</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 320px;
+            height: 480px;
+            overflow: hidden;
+            /* evita barra de rolagem */
+            background: #111;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin: 10px 0;
+            font-size: 1.2em;
+        }
+
+        .card {
+            background: #222;
+            margin: 6px auto;
+            padding: 2px;
+            border-radius: 6px;
+            width: 180px;
+            /* reduzido para caber */
+            box-shadow: 0 0 5px #000;
+            font-size: 0.9em;
+        }
+
+        .value {
+            font-size: 1em;
+            color: #FFD700;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>System Information</h1>
+    <div class="card">
+        <h2>Memory</h2>
+        <div id="mem" class="value">Loading...</div>
+    </div>
+    <div class="card">
+        <h2>CPU</h2>
+        <div id="cpu" class="value">Loading...</div>
+    </div>
+    <div class="card">
+        <h2>Disk</h2>
+        <div id="disk" class="value">Loading...</div>
+    </div>
+    <div class="card">
+        <h2>Temperature</h2>
+        <div id="temp" class="value">Loading...</div>
+    </div>
+    <script> async function loadInfo() {
+            try {
+                const mem = await fetch("http://localhost:8080/system/memory").then(r => r.json());
+                document.getElementById("mem").innerText = `Used: ${mem.usedPercent.toFixed(1)}%`;
+                const cpu = await fetch("http://localhost:8080/system/cpu").then(r => r.json());
+                document.getElementById("cpu").innerText = cpu[0].modelName;
+                const disk = await fetch("http://localhost:8080/system/disk").then(r => r.json());
+                document.getElementById("disk").innerText = `Used: ${disk.usedPercent.toFixed(1)}%`;
+                const temp = await fetch("http://localhost:8080/system/temp").then(r => r.json());
+                if (temp.length > 0) {
+                    document.getElementById("temp").innerText = `${temp[0].temperature.toFixed(1)} °C`;
+                } else {
+                    document.getElementById("temp").innerText = "N/A";
+                }
+            } catch (err) { console.error("Error loading system info:", err); }
+        }
+        loadInfo();    
+    </script>
+</body>
+
+</html>

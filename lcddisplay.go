@@ -282,10 +282,24 @@ func enableConsoleLogging(ctx context.Context) {
 		switch e := ev.(type) {
 		case *runtime.EventConsoleAPICalled:
 			for _, arg := range e.Args {
-				fmt.Printf("[Chromium console.%s] %s\n", e.Type.String(), arg.Value)
+				if arg.Value != nil {
+					fmt.Printf("[Chromium %s] %s\n", e.Type.String(), arg.Value)
+				} else if arg.Description != "" {
+					fmt.Printf("[Chromium %s] %s\n", e.Type.String(), arg.Description)
+				}
 			}
 		case *runtime.EventExceptionThrown:
-			fmt.Printf("[Chromium exception] %s\n", e.ExceptionDetails.Text)
+			details := e.ExceptionDetails
+			fmt.Printf("[Chromium Exception] %s\n", details.Text)
+			if details.Exception != nil && details.Exception.Description != "" {
+				fmt.Printf("  %s\n", details.Exception.Description)
+			}
+			if details.StackTrace != nil {
+				for _, frame := range details.StackTrace.CallFrames {
+					fmt.Printf("  at %s (%s:%d:%d)\n",
+						frame.FunctionName, frame.URL, frame.LineNumber, frame.ColumnNumber)
+				}
+			}
 		}
 	})
 }
@@ -633,6 +647,7 @@ func renderSource(src string, w, h int) (image.Image, error) {
 		chromedp.Navigate(src),
 		chromedp.Sleep(100 * time.Millisecond),
 		chromedp.FullScreenshot(&buf, 90),
+		chromedp.Sleep(100 * time.Millisecond),
 	}
 
 	// Executa as tarefas principais
