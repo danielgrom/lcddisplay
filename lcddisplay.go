@@ -54,7 +54,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -155,6 +157,7 @@ func openAX206(ctx context.Context) (*ax206, error) {
 // / Close releases resources associated with the AX206 device.
 // / Parameters: none
 func (a *ax206) Close() {
+	a.clearDisplay()
 	if a.intf != nil {
 		a.intf.Close()
 	}
@@ -163,6 +166,19 @@ func (a *ax206) Close() {
 	}
 	if a.dev != nil {
 		a.dev.Close()
+	}
+}
+
+// / clearDisplay fills the LCD display with black pixels.
+func (a *ax206) clearDisplay() {
+	if a.width == 0 || a.height == 0 {
+		return
+	}
+	// Create a black buffer (all zeros)
+	buf := make([]byte, a.width*a.height*2)
+	// Send it to the display
+	if err := a.blit(buf, 0, 0, a.width, a.height, 0x12); err != nil {
+		log.Printf("Warning: failed to clear display: %v", err)
 	}
 }
 
@@ -663,6 +679,19 @@ func main() {
 		log.Fatal(err)
 	}
 	defer ax.Close()
+
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		if *verbose {
+			log.Println("Interrupt received, clearing display and exiting...")
+		}
+		ax.Close()
+		os.Exit(0)
+	}()
+
 	if *info {
 		fmt.Printf("Detected resolution: %dx%d\n", ax.width, ax.height)
 		return

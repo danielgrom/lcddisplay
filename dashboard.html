@@ -71,6 +71,10 @@
         <h2>Temperature</h2>
         <div id="temp" class="value">Loading...</div>
     </div>
+        <div class="card">
+        <h2>Network</h2>
+        <div id="net" class="value">Loading...</div>
+    </div>
     <script> async function loadInfo() {
             try {
                 const mem = await fetch("http://localhost:8080/system/memory").then(r => r.json());
@@ -79,6 +83,12 @@
                 document.getElementById("cpu").innerText = cpu[0].modelName;
                 const disk = await fetch("http://localhost:8080/system/disk").then(r => r.json());
                 document.getElementById("disk").innerText = `Used: ${disk.usedPercent.toFixed(1)}%`;
+                const net = await fetch("http://localhost:8080/system/net").then(r => r.json());
+                if (net.length > 0) {
+                    document.getElementById("net").innerText = `IP: ${net[0].ipAddress}`;
+                } else {
+                    document.getElementById("net").innerText = "N/A";
+                }
                 const temp = await fetch("http://localhost:8080/system/temp").then(r => r.json());
                 if (temp.length > 0) {
                     document.getElementById("temp").innerText = `${temp[0].temperature.toFixed(1)} °C`;
