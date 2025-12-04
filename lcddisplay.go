@@ -302,7 +302,7 @@ func convertPixel(r, g, b uint8, format string) uint16 {
 	case "brg565":
 		return (uint16(b)&0xF8)<<8 | (uint16(r)&0xFC)<<3 | (uint16(g)&0xF8)>>3
 	default:
-		// fallback para brg565
+		// fallback for brg565
 		return (uint16(b)&0xF8)<<8 | (uint16(r)&0xFC)<<3 | (uint16(g)&0xF8)>>3
 	}
 }
