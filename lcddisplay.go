@@ -87,6 +87,7 @@ var (
 	endian   = flag.String("endian", "big", "Endianness: little or big")
 	verbose  = flag.Bool("verbose", false, "Enable verbose logging")
 	rotate   = flag.Int("rotate", 0, "Image rotation in degrees (0, 90, 180, 270)")
+	chromiumPath = flag.String("chromium", "/usr/bin/chromium", "Path to Chromium/Chrome executable")
 	interval = flag.Duration("interval", time.Second, "Interval between renderings in loop mode (e.g., 200ms, 1s)")
 )
 
@@ -358,15 +359,21 @@ func convertToBuffer(img image.Image, w, h int, format, endian string) []byte {
 // / h is the HTTP handler function to wrap.
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		h(w, r)
+		allowedOrigin := "http://localhost:8080"
+       if r.Header.Get("Origin") != allowedOrigin {
+            http.Error(w, "Forbidden", http.StatusForbidden)
+            log.Printf("Blocked request from origin: %s", r.Header.Get("Origin"))
+            return
+        }
+        w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+        if r.Method == "OPTIONS" {
+            log.Printf("Preflight request from %s allowed", allowedOrigin)
+            return
+        }
+        log.Printf("Handling request %s %s", r.Method, r.URL.Path)
+        h(w, r)
 	}
 }
 
@@ -456,10 +463,10 @@ func startSystemInfoServer() {
 // / Returns: Rendered image, error
 func renderSource(src string, w, h int) (image.Image, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath("/usr/bin/chromium"),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.WindowSize(w, h),
+				   chromedp.ExecPath(*chromiumPath),
+				   chromedp.Flag("headless", true),
+				   chromedp.Flag("disable-gpu", true),]
+				   chromedp.WindowSize(w, h),
 	)
 
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -511,8 +518,9 @@ func main() {
 	ctx := context.Background()
 	ax, err := openAX206(ctx)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to open AX206 device: %v", err)
 	}
+	log.Printf("AX206 device opened successfully")
 	defer ax.Close()
 	if *info {
 		fmt.Printf("Detected resolution: %dx%d\n", ax.width, ax.height)
@@ -544,12 +552,13 @@ func main() {
 	for {
 		img, err := renderSource(src, ax.width, ax.height)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Render source failed: %v", err)
 		}
 		img = rotateImage(img, *rotate)
-		buf := convertToBuffer(img, ax.width, ax.height, *format, *endian)
-		if err := ax.blit(buf, 0, 0, ax.width, ax.height, 0x12); err != nil {
-			log.Fatal(err)
+		rw, rh := img.Bounds().Dx(), img.Bounds().Dy()
+		buf := convertToBuffer(img, rw, rh, *format, *endian)
+		if err := ax.blit(buf, 0, 0, rw, rh, 0x12); err != nil {
+			log.Fatalf("Blit failed: %v", err)
 		}
 		if *verbose {
 			log.Printf("Source %s rendered and sent (%s, %s-endian, rotate=%d).", src, *format, *endian, *rotate)
